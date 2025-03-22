@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 
@@ -13,63 +12,68 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/chatgpt';
 
 // 2. Middlewares
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json()); // Replaces body-parser
 
 // 3. Connect to MongoDB
 mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
-  useUnifiedTopology: true
+  useUnifiedTopology: true,
 })
 .then(() => console.log('✅ Connected to MongoDB'))
 .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // 4. Define User Schema & Model
 const userSchema = new mongoose.Schema({
-  firstName: String,
-  lastName: String,
-  username: { type: String, unique: true },
-  email: { type: String, unique: true },
-  dob: Date,
-  password: String,
-});
+  firstName: { type: String, required: true },
+  lastName: { type: String, required: true },
+  username: { type: String, unique: true, required: true },
+  email: { type: String, unique: true, required: true },
+  dob: { type: Date, required: true },
+  password: { type: String, required: true },
+}, { timestamps: true });
 
-const User = mongoose.model('user', userSchema);
+const User = mongoose.model('User', userSchema);
 
 // 5. Register Route
 app.post('/register', async (req, res) => {
-  const { firstName, lastName, username, email, dob, password } = req.body;
-  
-  // Check if email already exists
-  const existingUser = await User.findOne({ email });
-  if (existingUser) {
-    return res.status(409).json({ error: 'Email already in use' });
-  }
-
-  // Hash the password
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  // Create new user
-  const newUser = new User({
-    firstName,
-    lastName,
-    username,
-    email,
-    dob,
-    password: hashedPassword,
-  });
-
   try {
+    const { firstName, lastName, username, email, dob, password } = req.body;
+
+    // Check for missing fields
+    if (!firstName || !lastName || !username || !email || !dob || !password) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ error: 'Email already in use' });
+    }
+
+    // Hash the password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create new user
+    const newUser = new User({ firstName, lastName, username, email, dob, password: hashedPassword });
     await newUser.save();
+
     res.status(201).json({ message: 'User registered successfully!' });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'Failed to register user', details: error.message });
   }
 });
 
 // 6. Login Route
 app.post('/login', async (req, res) => {
-  const { email, password } = req.body;
   try {
+    const { email, password } = req.body;
+
+    // Check for missing fields
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
     // Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
@@ -78,13 +82,14 @@ app.post('/login', async (req, res) => {
 
     // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
-    if (isMatch) {
-      return res.status(200).json({ message: 'Login successful' });
-    } else {
+    if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    res.status(200).json({ message: 'Login successful' });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to login' });
+    console.error(error);
+    res.status(500).json({ error: 'Failed to login', details: error.message });
   }
 });
 
